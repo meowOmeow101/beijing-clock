@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $sources = @()
 $sources += Get-ChildItem (Join-Path $jt 'stubs') -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
 $sources += Get-ChildItem (Join-Path $jt '*.java') | Select-Object -ExpandProperty FullName
-foreach ($c in @('SntpClient.java', 'TimeCenter.java', 'TimeFormatter.java', 'ServicePolicy.java')) {
+foreach ($c in @('SntpClient.java', 'TimeCenter.java', 'TimeFormatter.java', 'ServicePolicy.java', 'BootDiagnostics.java')) {
     $sources += (Join-Path $root ('app\src\main\java\com\beijing\clock\' + $c))
 }
 

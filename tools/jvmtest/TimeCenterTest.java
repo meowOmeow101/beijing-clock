@@ -1,6 +1,7 @@
 import android.content.Context;
 import android.os.Handler;
 
+import com.beijing.clock.BootDiagnostics;
 import com.beijing.clock.ServicePolicy;
 import com.beijing.clock.SntpClient;
 import com.beijing.clock.TimeCenter;
@@ -232,6 +233,32 @@ public class TimeCenterTest {
         System.out.println("  " + running);
         System.out.println("  " + exiting);
         System.out.println("  " + noPerm);
+
+        // 划掉任务后的重启重试必须落在「后台启动前台服务」的豁免窗口内（只有几秒）
+        check("重启重试间隔是秒级，不是分钟级",
+                ServicePolicy.RESTART_RETRY_DELAY_MS > 0
+                        && ServicePolicy.RESTART_RETRY_DELAY_MS <= 3000L);
+        check("最后一次重试仍在豁免窗口内",
+                ServicePolicy.RESTART_RETRY_DELAY_MS * 4 <= 10000L);
+        System.out.println("  重试时刻: 立即、"
+                + (ServicePolicy.RESTART_RETRY_DELAY_MS / 1000.0) + " 秒、"
+                + (ServicePolicy.RESTART_RETRY_DELAY_MS * 4 / 1000.0) + " 秒");
+
+        testBootDiagnostics();
+    }
+
+    private static void testBootDiagnostics() {
+        section("8. 进程重建诊断（用于判断通知消失是应用问题还是系统杀进程）");
+        check("刚启动的进程判定为「刚被重建」", BootDiagnostics.isFreshProcess(300L));
+        check("运行了一分钟的进程不算刚重建", !BootDiagnostics.isFreshProcess(60_000L));
+        check("负值不 panic", !BootDiagnostics.isFreshProcess(-1L));
+        check("毫秒级格式化", BootDiagnostics.formatAge(500L).equals("500 毫秒"));
+        check("秒级格式化带一位小数", BootDiagnostics.formatAge(1200L).startsWith("1.2"));
+        check("分钟级格式化", BootDiagnostics.formatAge(185_000L).equals("3 分 05 秒"));
+        check("小时级格式化", BootDiagnostics.formatAge(7_620_000L).equals("2 小时 07 分"));
+        check("异常输入不崩", BootDiagnostics.formatAge(-5L).equals("未知"));
+        System.out.println("  示例: " + BootDiagnostics.formatAge(185_000L) + " / "
+                + BootDiagnostics.formatAge(7_620_000L));
     }
 
     // ------------------------------------------------------------ 工具方法
