@@ -220,19 +220,30 @@ public class TimeCenterTest {
         check("默认开启「退出后仍然显示」", ServicePolicy.DEFAULT_PERSIST_AFTER_EXIT);
 
         // 界面状态文案
-        String running = ServicePolicy.describeState(true, true, true, true);
-        String exiting = ServicePolicy.describeState(true, false, true, true);
-        String off = ServicePolicy.describeState(false, true, false, true);
-        String noPerm = ServicePolicy.describeState(true, true, true, false);
-        String stopped = ServicePolicy.describeState(true, true, false, true);
+        String running = ServicePolicy.describeState(true, true, false, true, true);
+        String exiting = ServicePolicy.describeState(true, false, false, true, true);
+        String off = ServicePolicy.describeState(false, true, false, false, true);
+        String noPerm = ServicePolicy.describeState(true, true, false, true, false);
+        String stopped = ServicePolicy.describeState(true, true, false, false, true);
+        String hidden = ServicePolicy.describeState(true, true, true, true, true);
         check("常驻中且退出保留 -> 文案说明划掉后台也不消失", running.contains("划掉后台"));
         check("常驻中但退出不保留 -> 文案说明会一起关闭", exiting.contains("退出应用后会一起关闭"));
         check("通知栏关闭 -> 文案说明不会显示", off.contains("已关闭"));
         check("无通知权限 -> 文案提示权限", noPerm.contains("通知权限"));
         check("服务未运行 -> 文案提示重开应用", stopped.contains("重新打开"));
+        check("已从最近任务隐藏 -> 文案说明无法被划掉", hidden.contains("最近任务"));
         System.out.println("  " + running);
         System.out.println("  " + exiting);
-        System.out.println("  " + noPerm);
+        System.out.println("  " + hidden);
+
+        // 从最近任务隐藏：参考李跳跳那类工具的思路，让应用压根不出现在最近任务里，
+        // 用户就没有「划掉后台」这个动作，前台服务不会被打断
+        check("开启隐藏 + 通知栏开着 -> 隐藏生效",
+                ServicePolicy.shouldExcludeFromRecents(true, true));
+        check("开启隐藏但通知栏关了 -> 不隐藏（否则没有入口能打开应用）",
+                !ServicePolicy.shouldExcludeFromRecents(true, false));
+        check("未开启隐藏 -> 照常出现在最近任务里",
+                !ServicePolicy.shouldExcludeFromRecents(false, true));
 
         // 划掉任务后的重启重试必须落在「后台启动前台服务」的豁免窗口内（只有几秒）
         check("重启重试间隔是秒级，不是分钟级",

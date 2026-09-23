@@ -21,8 +21,14 @@ public final class ServicePolicy {
     /** 用户是否希望「退出应用后通知栏继续显示」 */
     public static final String KEY_PERSIST_AFTER_EXIT = "persist_after_exit";
 
+    /** 用户是否希望把本应用从最近任务列表里隐藏 */
+    public static final String KEY_HIDE_FROM_RECENTS = "hide_from_recents";
+
     /** 该偏好的默认值：默认保留，因为这就是要这个应用的意义所在 */
     public static final boolean DEFAULT_PERSIST_AFTER_EXIT = true;
+
+    /** 默认不隐藏：隐藏后通知栏是唯一入口，误关通知会打不开应用，交给用户自己选 */
+    public static final boolean DEFAULT_HIDE_FROM_RECENTS = false;
 
     /** WakeLock 每次申请的时长（毫秒），到期前必须续期 */
     public static final long WAKE_LOCK_TIMEOUT_MS = 12L * 60L * 60L * 1000L;
@@ -74,15 +80,31 @@ public final class ServicePolicy {
     }
 
     /**
+     * 是否把启动页从最近任务列表里隐藏。
+     *
+     * <p>这是这套保活里最有效的一招：应用不出现在最近任务里，用户就没有「划掉后台」这个动作，
+     * 前台服务不会被 {@code onTaskRemoved} 打断，通知栏的时间自然一直在。
+     * 代价是通知栏成为进入应用的唯一入口，所以留给用户自己决定。
+     *
+     * @param hideRequested    用户是否开了「从最近任务隐藏」
+     * @param clockEnabled     通知栏时间开关是否开着（关了就没有入口，不能隐藏）
+     */
+    public static boolean shouldExcludeFromRecents(boolean hideRequested, boolean clockEnabled) {
+        return hideRequested && clockEnabled;
+    }
+
+    /**
      * 把偏好和环境状态翻译成给用户看的一句话，界面和通知都直接用这句。
      *
      * @param clockEnabled     通知栏显示开关
      * @param persistAfterExit 退出后仍然显示开关
+     * @param hideFromRecents  是否已从最近任务隐藏
      * @param serviceRunning   服务当前是否在运行
      * @param notificationsOn  系统通知权限是否已授予
      */
     public static String describeState(boolean clockEnabled,
                                        boolean persistAfterExit,
+                                       boolean hideFromRecents,
                                        boolean serviceRunning,
                                        boolean notificationsOn) {
         if (!clockEnabled) {
@@ -93,6 +115,9 @@ public final class ServicePolicy {
         }
         if (!serviceRunning) {
             return "服务未在运行，重新打开应用即可恢复";
+        }
+        if (hideFromRecents) {
+            return "正在显示，本应用不会出现在最近任务里，因而无法被划掉";
         }
         return persistAfterExit
                 ? "正在显示，划掉后台也不会消失"
