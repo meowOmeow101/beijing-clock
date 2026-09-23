@@ -235,12 +235,6 @@ public class NotificationClockService extends Service {
             return START_NOT_STICKY;
         }
 
-        // 被系统重建时 intent 会是 null，这里按「用户仍希望常驻」来判断是否继续
-        if (intent == null && !isWanted(this)) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
-
         // 先进入前台，避免 Android 8+ 的 5 秒超时崩溃
         if (!startForegroundCompat()) {
             // 进不了前台就别硬撑，否则进程会被反复重建
@@ -251,12 +245,12 @@ public class NotificationClockService extends Service {
         handler.removeCallbacks(ticker);
         ticker.run();
 
-        // 服务被系统重启后同样校准一次，保证走时准确
+        // 服务被系统重建后同样校准一次，保证走时准确
         timeCenter.syncOnAppOpen();
 
-        // START_STICKY：进程被系统回收后由系统重建服务；
-        // 划掉最近任务不会销毁前台服务，所以通知栏时间不会中断。
-        return START_STICKY;
+        // START_REDELIVER_INTENT：进程被系统回收后由系统重建服务，并把启动 Intent 重新投递过来，
+        // 这样重建时走的是正常路径，不会拿到 null。划掉最近任务本身不会销毁前台服务。
+        return START_REDELIVER_INTENT;
     }
 
     /**
@@ -275,6 +269,7 @@ public class NotificationClockService extends Service {
                 startForeground(NOTIFICATION_ID, notification);
             }
             foregroundAlive = true;
+            Log.i(TAG, "已进入前台；本进程启动于 " + BootDiagnostics.describeProcessAge());
             return true;
         } catch (Throwable t) {
             foregroundAlive = false;
@@ -406,7 +401,7 @@ public class NotificationClockService extends Service {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
         boolean persist = isPersistAfterExit(this);
-        Log.i(TAG, "任务被移除，退出后保留常驻 = " + persist);
+        Log.i(TAG, "onTaskRemoved：退出后保留常驻 = " + persist + "，服务是否在前台 = " + foregroundAlive);
 
         if (!ServicePolicy.shouldRestartAfterTaskRemoved(persist, true)) {
             // 用户选择了「退出后不保留」，划掉后台就把服务收掉，通知栏一起消失
@@ -414,16 +409,24 @@ public class NotificationClockService extends Service {
             return;
         }
 
-        // 划掉最近任务本身不会销毁前台服务，这里只是兜底：
-        // 万一某些 ROM 顺手把服务停了，延迟一下再拉回来。
-        handler.postDelayed(() -> {
-            try {
-                startService(new Intent(this, NotificationClockService.class)
-                        .setAction(ACTION_START));
-            } catch (Exception e) {
-                Log.w(TAG, "划掉任务后重启服务失败（下次打开应用会自动恢复）", e);
-            }
-        }, 800L);
+        // 关键点：这里必须「立刻」重启，不能延迟。
+        // Android 12+ 默认禁止从后台启动前台服务，但用户在最近任务里划掉应用属于豁免情形，
+        // 会给出一个只有几秒的窗口；一旦把重启丢进 postDelayed，进程若在这段时间里被 ROM
+        // 直接杀掉，回调永远不会执行，通知栏的时间就跟着没了。
+        restartServiceNow();
+        // 再补两次重试，覆盖「第一次调用被系统忽略」的情况
+        handler.postDelayed(this::restartServiceNow, ServicePolicy.RESTART_RETRY_DELAY_MS);
+        handler.postDelayed(this::restartServiceNow, ServicePolicy.RESTART_RETRY_DELAY_MS * 4);
+    }
+
+    /** 把服务重新拉起来，失败只记日志（重试与下次打开应用都会兜底） */
+    private void restartServiceNow() {
+        try {
+            startService(new Intent(this, NotificationClockService.class).setAction(ACTION_START));
+            Log.i(TAG, "已重新拉起常驻服务");
+        } catch (Throwable t) {
+            Log.w(TAG, "重新拉起服务失败", t);
+        }
     }
 
     @Override

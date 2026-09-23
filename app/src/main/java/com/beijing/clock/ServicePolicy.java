@@ -30,6 +30,14 @@ public final class ServicePolicy {
     /** 提前续期的阈值：持有时间超过这个值就重新申请，保证不会中途失效 */
     public static final long WAKE_LOCK_RENEW_AFTER_MS = 10L * 60L * 60L * 1000L;
 
+    /**
+     * 划掉最近任务后重新拉起服务的重试间隔。
+     *
+     * <p>用户划掉任务会给一个只有几秒的「允许从后台启动前台服务」窗口，重试必须落在窗口内，
+     * 所以这里用秒级间隔，而不是分钟级。
+     */
+    public static final long RESTART_RETRY_DELAY_MS = 2000L;
+
     private ServicePolicy() {
     }
 

@@ -278,7 +278,26 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         serviceCard.setAlpha(notificationsOn ? 1f : 0.85f);
 
         // 一句话说清「现在到底在不在显示」
-        runtimeStateText.setText("当前状态：" + NotificationClockService.describeState(this));
+        String state = "当前状态：" + NotificationClockService.describeState(this);
+        if (NotificationClockService.isWanted(this) && !isIgnoringBatteryOptimizations()) {
+            // 这一条很关键：没进白名单的应用在国产 ROM 上很容易被划掉后台时直接冻结
+            state += "\n建议将本应用加入电池优化白名单，否则划掉后台后系统可能冻结它（点下方按钮）";
+        }
+        runtimeStateText.setText(state);
+    }
+
+    /** 是否已被系统列入电池优化白名单（未列入时后台更容易被冻结） */
+    private boolean isIgnoringBatteryOptimizations() {
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                return true;
+            }
+            android.os.PowerManager pm =
+                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Exception e) {
+            return true;
+        }
     }
 
     private void setStatus(String text, int colorRes) {
