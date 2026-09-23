@@ -57,8 +57,11 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     private MaterialButton syncButton;
     private SwitchCompat serviceSwitch;
     private SwitchCompat iconSwitch;
+    private SwitchCompat persistSwitch;
     private MaterialCardView serviceCard;
     private MaterialCardView iconCard;
+    private MaterialCardView persistCard;
+    private TextView runtimeStateText;
 
     /** 每秒刷新首页时间 */
     private final Runnable ticker = new Runnable() {
@@ -86,10 +89,14 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         syncButton = findViewById(R.id.button_sync);
         serviceSwitch = findViewById(R.id.switch_service);
         iconSwitch = findViewById(R.id.switch_icon);
+        persistSwitch = findViewById(R.id.switch_persist);
         serviceCard = findViewById(R.id.card_service);
         iconCard = findViewById(R.id.card_icon);
+        persistCard = findViewById(R.id.card_persist);
+        runtimeStateText = findViewById(R.id.text_runtime_state);
 
         zoneText.setText(TimeFormatter.ZONE_NAME);
+        serviceSwitch.setChecked(NotificationClockService.isWanted(this));
 
         syncButton.setOnClickListener(v -> {
             if (timeCenter.isSyncing()) {
@@ -125,6 +132,20 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
             handler.postDelayed(this::refreshState, 500L);
         });
 
+        persistSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (!isSwitchStable) {
+                return;
+            }
+            NotificationClockService.setPersistAfterExit(this, isChecked);
+            if (isChecked) {
+                showMessage("已开启：从最近任务划掉本应用后，通知栏时间继续显示");
+            } else {
+                showMessage("已关闭：退出应用时通知栏时间会一起消失");
+            }
+            // 服务不需要重启，退出时的行为按读取到的最新偏好决定
+            handler.postDelayed(this::refreshState, 200L);
+        });
+
         findViewById(R.id.button_info).setOnClickListener(v -> showInfoDialog());
         findViewById(R.id.button_settings).setOnClickListener(v -> openBatterySettings());
     }
@@ -139,6 +160,16 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         }
         isSwitchStable = false;
         serviceSwitch.setChecked(checked);
+        isSwitchStable = true;
+    }
+
+    /** 同步「退出后仍然显示」开关，同样不触发监听器 */
+    private void setPersistSwitchChecked(boolean checked) {
+        if (persistSwitch.isChecked() == checked) {
+            return;
+        }
+        isSwitchStable = false;
+        persistSwitch.setChecked(checked);
         isSwitchStable = true;
     }
 
@@ -231,20 +262,24 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         syncButton.setEnabled(!syncing);
         syncButton.setText(syncing ? "正在对时…" : "立即校准北京时间");
 
-        setSwitchChecked(NotificationClockService.isWanted(this) && NotificationClockService.isRunning(), false);
+        boolean serviceRunning = NotificationClockService.isRunning();
+        setSwitchChecked(NotificationClockService.isWanted(this) && serviceRunning, false);
         boolean keepIcon = NotificationClockService.isIconKept(this);
         isSwitchStable = false;
         iconSwitch.setChecked(keepIcon);
         isSwitchStable = true;
-        iconSwitch.setEnabled(NotificationClockService.isRunning());
-        iconCard.setAlpha(NotificationClockService.isRunning() ? 1f : 0.5f);
+        iconSwitch.setEnabled(serviceRunning);
+        iconCard.setAlpha(serviceRunning ? 1f : 0.5f);
+
+        setPersistSwitchChecked(NotificationClockService.isPersistAfterExit(this));
+        persistSwitch.setEnabled(NotificationClockService.isWanted(this));
+        persistCard.setAlpha(NotificationClockService.isWanted(this) ? 1f : 0.5f);
 
         boolean notificationsOn = NotificationClockService.notificationsEnabled(this);
-        if (!notificationsOn) {
-            serviceCard.setAlpha(0.85f);
-        } else {
-            serviceCard.setAlpha(1f);
-        }
+        serviceCard.setAlpha(notificationsOn ? 1f : 0.85f);
+
+        // 一句话说清「现在到底在不在显示」
+        runtimeStateText.setText("当前状态：" + NotificationClockService.describeState(this));
     }
 
     private void setStatus(String text, int colorRes) {
@@ -268,7 +303,11 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
                 + "通知栏显示：开启后由一个前台服务每秒刷新一次通知，"
                 + "下拉通知栏即可看到精确到秒的北京时间；若希望状态栏常驻图标，"
                 + "请保持「状态栏常驻图标」为开启状态。\n\n"
-                + "如果系统在后台清理了应用，重新打开本应用会自动恢复并重新校准。";
+                + "退出后仍然显示：从最近任务划掉本应用时，前台服务默认继续运行，"
+                + "通知栏的时间不会中断；关掉这个开关，退出应用就会连通知一起收掉。\n\n"
+                + "需要留意的是，如果在系统设置里对本应用点了「强行停止」，"
+                + "系统会禁止任何后台服务，通知栏时间会消失，重新打开一次应用即可恢复；"
+                + "把本应用加入电池优化白名单能显著降低被系统清理的概率。";
         new AlertDialog.Builder(this)
                 .setTitle("关于本应用")
                 .setMessage(message)
