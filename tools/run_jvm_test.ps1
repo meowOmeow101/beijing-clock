@@ -1,4 +1,4 @@
-# Compile and run the JVM functional verification for BeijingClock.
+﻿# Compile and run the JVM functional verification for BeijingClock.
 # Runs the real SNTP / time-offset logic of the app on the desktop JVM.
 # NOTE: keep this file pure ASCII - Windows PowerShell 5.1 parses .ps1 as ANSI
 # when there is no BOM, which corrupts non-ASCII literals.
@@ -44,7 +44,7 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $sources = @()
 $sources += Get-ChildItem (Join-Path $jt 'stubs') -Recurse -Filter *.java | Select-Object -ExpandProperty FullName
 $sources += Get-ChildItem (Join-Path $jt '*.java') | Select-Object -ExpandProperty FullName
-foreach ($c in @('SntpClient.java', 'TimeCenter.java', 'TimeFormatter.java')) {
+foreach ($c in @('SntpClient.java', 'TimeCenter.java', 'TimeFormatter.java', 'ServicePolicy.java')) {
     $sources += (Join-Path $root ('app\src\main\java\com\beijing\clock\' + $c))
 }
 

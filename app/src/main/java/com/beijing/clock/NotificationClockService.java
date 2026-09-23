@@ -53,6 +53,8 @@ public class NotificationClockService extends Service {
     private static volatile boolean running = false;
     /** 应用上下文引用，供静态方法查询服务状态使用 */
     private static volatile Context appContextRef = null;
+    /** 是否已经成功进入前台；startForeground 失败时界面不应该显示「正在显示」 */
+    private static volatile boolean foregroundAlive = false;
     /** isRunning() 的查询缓存，避免界面每秒刷新时反复枚举系统服务 */
     private static final long ALIVE_CHECK_INTERVAL_MS = 1000L;
     private static volatile long lastAliveCheckElapsed = 0L;
@@ -67,6 +69,7 @@ public class NotificationClockService extends Service {
 
     private NotificationManager notificationManager;
     private PowerManager.WakeLock wakeLock;
+    private long wakeLockAcquiredElapsed = 0L;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private TimeCenter timeCenter;
 
@@ -74,7 +77,15 @@ public class NotificationClockService extends Service {
     private final Runnable ticker = new Runnable() {
         @Override
         public void run() {
+            // WakeLock 是带超时申请的，服务可能连续跑好几天，到期前在这里续期，
+            // 否则息屏后 Handler 收不到调度，通知里的秒数会停在原地。
+            if (ServicePolicy.wakeLockNeedsRenewal(
+                    SystemClock.elapsedRealtime() - wakeLockAcquiredElapsed)) {
+                releaseWakeLock();
+                acquireWakeLock();
+            }
             updateNotification();
+            foregroundAlive = true;
             handler.postDelayed(this, Math.max(50L, timeCenter.millisToNextSecond()));
         }
     };
@@ -144,6 +155,28 @@ public class NotificationClockService extends Service {
         prefs(context).edit().putBoolean(KEY_KEEP_ICON, keep).apply();
     }
 
+    /** 是否「退出应用后通知栏仍然显示」 */
+    public static boolean isPersistAfterExit(Context context) {
+        appContext(context);
+        return prefs(context).getBoolean(ServicePolicy.KEY_PERSIST_AFTER_EXIT,
+                ServicePolicy.DEFAULT_PERSIST_AFTER_EXIT);
+    }
+
+    public static void setPersistAfterExit(Context context, boolean persist) {
+        appContext(context);
+        prefs(context).edit().putBoolean(ServicePolicy.KEY_PERSIST_AFTER_EXIT, persist).apply();
+    }
+
+    /** 界面状态文案：把开关状态翻译成一句人话 */
+    public static String describeState(Context context) {
+        appContext(context);
+        return ServicePolicy.describeState(
+                isWanted(context),
+                isPersistAfterExit(context),
+                isRunning() && foregroundAlive,
+                notificationsEnabled(context));
+    }
+
     private static SharedPreferences prefs(Context context) {
         return appContext(context).getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
@@ -190,6 +223,7 @@ public class NotificationClockService extends Service {
         acquireWakeLock();
         // 服务自身也跟随时间中心的校准结果刷新
         timeCenter.addListener(timeListener);
+        Log.i(TAG, "服务创建，退出后保留常驻 = " + isPersistAfterExit(this));
     }
 
     @Override
@@ -201,8 +235,18 @@ public class NotificationClockService extends Service {
             return START_NOT_STICKY;
         }
 
+        // 被系统重建时 intent 会是 null，这里按「用户仍希望常驻」来判断是否继续
+        if (intent == null && !isWanted(this)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+
         // 先进入前台，避免 Android 8+ 的 5 秒超时崩溃
-        startForegroundCompat();
+        if (!startForegroundCompat()) {
+            // 进不了前台就别硬撑，否则进程会被反复重建
+            stopSelf();
+            return START_NOT_STICKY;
+        }
 
         handler.removeCallbacks(ticker);
         ticker.run();
@@ -210,16 +254,32 @@ public class NotificationClockService extends Service {
         // 服务被系统重启后同样校准一次，保证走时准确
         timeCenter.syncOnAppOpen();
 
+        // START_STICKY：进程被系统回收后由系统重建服务；
+        // 划掉最近任务不会销毁前台服务，所以通知栏时间不会中断。
         return START_STICKY;
     }
 
-    private void startForegroundCompat() {
-        Notification notification = buildNotification();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(NOTIFICATION_ID, notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+    /**
+     * 进入前台并挂上通知。
+     *
+     * @return 是否成功。Android 14 起如果前台服务类型不可用，startForeground 会直接抛异常，
+     * 这里必须兜住，否则服务在系统重建时会陷入「崩溃-重启」循环。
+     */
+    private boolean startForegroundCompat() {
+        try {
+            Notification notification = buildNotification();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+            foregroundAlive = true;
+            return true;
+        } catch (Throwable t) {
+            foregroundAlive = false;
+            Log.e(TAG, "进入前台失败", t);
+            return false;
         }
     }
 
@@ -286,21 +346,18 @@ public class NotificationClockService extends Service {
     }
 
     private void updateNotification() {
-        Notification notification = buildNotification();
         try {
             if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
-                notificationManager.notify(NOTIFICATION_ID, notification);
-            } else {
-                // 用户关闭了通知权限，只能退回 startForeground 维持前台状态
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(NOTIFICATION_ID, notification,
-                            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
-                } else {
-                    startForeground(NOTIFICATION_ID, notification);
-                }
+                notificationManager.notify(NOTIFICATION_ID, buildNotification());
+                return;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "刷新通知失败", e);
+            // 用户关掉了通知权限：正文刷不出来，但至少要保证服务还在前台，
+            // 这样重新打开权限之后时间能立刻恢复显示。
+            if (!foregroundAlive) {
+                startForegroundCompat();
+            }
+        } catch (Throwable t) {
+            Log.e(TAG, "刷新通知失败", t);
         }
     }
 
@@ -310,28 +367,37 @@ public class NotificationClockService extends Service {
             if (pm == null) {
                 return;
             }
-            wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BeijingClock::ticker");
-            wakeLock.setReferenceCounted(false);
-            // 最长持有 12 小时后自动释放，避免异常情况下长期占用
-            wakeLock.acquire(12L * 60L * 60L * 1000L);
+            if (wakeLock == null) {
+                wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "BeijingClock::ticker");
+                wakeLock.setReferenceCounted(false);
+            }
+            // 带超时申请，避免异常退出时长期占用；ticker 会在到期前自动续期
+            wakeLock.acquire(ServicePolicy.WAKE_LOCK_TIMEOUT_MS);
+            wakeLockAcquiredElapsed = SystemClock.elapsedRealtime();
         } catch (Exception e) {
             Log.e(TAG, "申请 WakeLock 失败", e);
         }
     }
 
-    @Override
-    public void onDestroy() {
-        running = false;
-        handler.removeCallbacks(ticker);
-        if (timeCenter != null) {
-            timeCenter.removeListener(timeListener);
-        }
+    private void releaseWakeLock() {
         if (wakeLock != null && wakeLock.isHeld()) {
             try {
                 wakeLock.release();
             } catch (Exception ignored) {
             }
         }
+    }
+
+    @Override
+    public void onDestroy() {
+        Log.i(TAG, "服务被销毁");
+        running = false;
+        foregroundAlive = false;
+        handler.removeCallbacks(ticker);
+        if (timeCenter != null) {
+            timeCenter.removeListener(timeListener);
+        }
+        releaseWakeLock();
         wakeLock = null;
         super.onDestroy();
     }
@@ -339,18 +405,25 @@ public class NotificationClockService extends Service {
     @Override
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
-        // 从最近任务里划掉 App 时不要停掉时钟
-        if (isWanted(this)) {
-            handler.postDelayed(() -> {
-                Intent restart = new Intent(this, NotificationClockService.class);
-                restart.setAction(ACTION_START);
-                try {
-                    startService(restart);
-                } catch (Exception e) {
-                    Log.w(TAG, "划掉任务后重启服务失败（用户下次打开应用会自动恢复）", e);
-                }
-            }, 800L);
+        boolean persist = isPersistAfterExit(this);
+        Log.i(TAG, "任务被移除，退出后保留常驻 = " + persist);
+
+        if (!ServicePolicy.shouldRestartAfterTaskRemoved(persist, true)) {
+            // 用户选择了「退出后不保留」，划掉后台就把服务收掉，通知栏一起消失
+            stopSelf();
+            return;
         }
+
+        // 划掉最近任务本身不会销毁前台服务，这里只是兜底：
+        // 万一某些 ROM 顺手把服务停了，延迟一下再拉回来。
+        handler.postDelayed(() -> {
+            try {
+                startService(new Intent(this, NotificationClockService.class)
+                        .setAction(ACTION_START));
+            } catch (Exception e) {
+                Log.w(TAG, "划掉任务后重启服务失败（下次打开应用会自动恢复）", e);
+            }
+        }, 800L);
     }
 
     @Override
