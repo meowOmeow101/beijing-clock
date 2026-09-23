@@ -167,12 +167,25 @@ public class NotificationClockService extends Service {
         prefs(context).edit().putBoolean(ServicePolicy.KEY_PERSIST_AFTER_EXIT, persist).apply();
     }
 
+    /** 是否把应用从最近任务列表里隐藏（隐藏后通知栏是唯一入口） */
+    public static boolean isHideFromRecents(Context context) {
+        appContext(context);
+        return prefs(context).getBoolean(ServicePolicy.KEY_HIDE_FROM_RECENTS,
+                ServicePolicy.DEFAULT_HIDE_FROM_RECENTS);
+    }
+
+    public static void setHideFromRecents(Context context, boolean hide) {
+        appContext(context);
+        prefs(context).edit().putBoolean(ServicePolicy.KEY_HIDE_FROM_RECENTS, hide).apply();
+    }
+
     /** 界面状态文案：把开关状态翻译成一句人话 */
     public static String describeState(Context context) {
         appContext(context);
         return ServicePolicy.describeState(
                 isWanted(context),
                 isPersistAfterExit(context),
+                isHideFromRecents(context),
                 isRunning() && foregroundAlive,
                 notificationsEnabled(context));
     }

@@ -58,9 +58,11 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     private SwitchCompat serviceSwitch;
     private SwitchCompat iconSwitch;
     private SwitchCompat persistSwitch;
+    private SwitchCompat recentsSwitch;
     private MaterialCardView serviceCard;
     private MaterialCardView iconCard;
     private MaterialCardView persistCard;
+    private MaterialCardView recentsCard;
     private TextView runtimeStateText;
 
     /** 每秒刷新首页时间 */
@@ -75,6 +77,7 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        applyRecentsVisibility();
         setContentView(R.layout.activity_main);
 
         timeCenter = TimeCenter.get(this);
@@ -90,9 +93,11 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         serviceSwitch = findViewById(R.id.switch_service);
         iconSwitch = findViewById(R.id.switch_icon);
         persistSwitch = findViewById(R.id.switch_persist);
+        recentsSwitch = findViewById(R.id.switch_recents);
         serviceCard = findViewById(R.id.card_service);
         iconCard = findViewById(R.id.card_icon);
         persistCard = findViewById(R.id.card_persist);
+        recentsCard = findViewById(R.id.card_recents);
         runtimeStateText = findViewById(R.id.text_runtime_state);
 
         zoneText.setText(TimeFormatter.ZONE_NAME);
@@ -146,6 +151,19 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
             handler.postDelayed(this::refreshState, 200L);
         });
 
+        recentsSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (!isSwitchStable) {
+                return;
+            }
+            NotificationClockService.setHideFromRecents(this, isChecked);
+            if (isChecked) {
+                showMessage("已开启：重启应用后不再出现在最近任务中，通知栏是唯一入口");
+            } else {
+                showMessage("已关闭：重启应用后会重新出现在最近任务中");
+            }
+            handler.postDelayed(this::refreshState, 200L);
+        });
+
         findViewById(R.id.button_settings).setOnClickListener(v -> openBatterySettings());
     }
 
@@ -169,6 +187,16 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         }
         isSwitchStable = false;
         persistSwitch.setChecked(checked);
+        isSwitchStable = true;
+    }
+
+    /** 同步「从最近任务隐藏」开关 */
+    private void setRecentsSwitchChecked(boolean checked) {
+        if (recentsSwitch.isChecked() == checked) {
+            return;
+        }
+        isSwitchStable = false;
+        recentsSwitch.setChecked(checked);
         isSwitchStable = true;
     }
 
@@ -274,6 +302,12 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         persistSwitch.setEnabled(NotificationClockService.isWanted(this));
         persistCard.setAlpha(NotificationClockService.isWanted(this) ? 1f : 0.5f);
 
+        // 从最近任务隐藏：通知栏关掉就不能隐藏（否则没有入口能打开应用）
+        boolean hideAvailable = NotificationClockService.isWanted(this);
+        setRecentsSwitchChecked(NotificationClockService.isHideFromRecents(this));
+        recentsSwitch.setEnabled(hideAvailable);
+        recentsCard.setAlpha(hideAvailable ? 1f : 0.5f);
+
         boolean notificationsOn = NotificationClockService.notificationsEnabled(this);
         serviceCard.setAlpha(notificationsOn ? 1f : 0.85f);
 
@@ -286,9 +320,33 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         runtimeStateText.setText(state);
     }
 
+    /**
+     * 让本应用不出现在最近任务列表里。
+     *
+     * <p>这是整套保活里最管用的一招：应用压根不出现在最近任务里，用户就没有「划掉后台」
+     * 这个动作，前台服务不会被打断，通知栏的时间自然一直留着。
+     *
+     * <p>用 {@code FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS} 而不是在清单里写
+     * {@code excludeFromRecents="true"}，也不去禁用 Activity 组件：前者可以运行时开关，
+     * 后者会让通知栏那条通知也点不开应用（Android 11 起被禁用的组件连显式 Intent 都拦）。
+     * 这个标志在任务创建时生效，所以关掉开关后需要重启一次应用才会重新出现在最近任务里。
+     */
+    private void applyRecentsVisibility() {
+        boolean hide = ServicePolicy.shouldExcludeFromRecents(
+                NotificationClockService.isHideFromRecents(this),
+                NotificationClockService.isWanted(this));
+        if (hide) {
+            Intent intent = getIntent();
+            if (intent == null) {
+                intent = new Intent();
+                setIntent(intent);
+            }
+            intent.addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
+        }
+    }
+
     /** 是否已被系统列入电池优化白名单（未列入时后台更容易被冻结） */
-    private boolean isIgnoringBatteryOptimizations() {
-        try {
+    private boolean isIgnoringBatteryOptimizations() {        try {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
                 return true;
             }
