@@ -309,38 +309,18 @@
             android:textColor="@color/text_secondary"
             android:textSize="12sp" />
 
-        <!-- 底部功能按钮 -->
-        <LinearLayout
+        <!-- 后台与通知设置入口 -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/button_settings"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="46dp"
             android:layout_marginTop="18dp"
-            android:orientation="horizontal">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/button_settings"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="46dp"
-                android:layout_weight="1"
-                android:text="后台 / 通知设置"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                app:cornerRadius="12dp"
-                app:strokeColor="@color/card_stroke" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/button_info"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="0dp"
-                android:layout_height="46dp"
-                android:layout_marginLeft="12dp"
-                android:layout_weight="1"
-                android:text="使用说明"
-                android:textColor="@color/text_primary"
-                android:textSize="14sp"
-                app:cornerRadius="12dp"
-                app:strokeColor="@color/card_stroke" />
-        </LinearLayout>
+            android:text="后台 / 通知设置"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/card_stroke" />
 
         <TextView
             android:layout_width="match_parent"
