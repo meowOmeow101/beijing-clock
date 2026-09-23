@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">北京时间</string>
+    <string name="app_subtitle">通知栏北京时间 · 精确到秒</string>
+    <string name="zone_label">中国标准时间 UTC+8</string>
+</resources>

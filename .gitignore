@@ -1,0 +1,26 @@
+# 构建产物
+*.iml
+.gradle/
+build/
+local.properties
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+
+# 签名文件（含密码，切勿提交）
+keystore.properties
+*.jks
+*.keystore
+
+# 系统
+.DS_Store
+Thumbs.db
