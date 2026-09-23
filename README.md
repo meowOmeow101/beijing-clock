@@ -12,6 +12,12 @@
 时间不依赖手机系统时区，固定按 `Asia/Shanghai`（UTC+8）显示，手机时区设成哪里都一样。
 对时用 NTP，不引入任何第三方库，AndroidX 之外没有别的依赖。
 
+## 安装
+
+已签名的安装包在 [Releases](https://github.com/meowOmeow101/beijing-clock/releases) 页面，
+下载 apk 直接安装即可（Android 6.0 及以上）。装完打开应用，把「通知栏显示北京时间」
+开关打开，按提示允许通知权限。
+
 ## 功能
 
 | 能力 | 说明 |
