@@ -1,8 +1,6 @@
 import android.content.Context;
 import android.os.Handler;
 
-import com.beijing.clock.BootDiagnostics;
-import com.beijing.clock.ServicePolicy;
 import com.beijing.clock.SntpClient;
 import com.beijing.clock.TimeCenter;
 import com.beijing.clock.TimeFormatter;
@@ -43,7 +41,6 @@ public class TimeCenterTest {
         testAppOpenCalibration();
         testPersistence();
         testClockRollbackDetection();
-        testServicePolicy();
 
         System.out.println();
         System.out.println("================ 结果: 通过 " + passed + " / 失败 " + failed + " ================");
@@ -184,95 +181,8 @@ public class TimeCenterTest {
         System.out.println("  检出回拨，等待下次联网重新校准（当前偏移量 " + tc.getOffsetMillis() + " ms）");
     }
 
-    private static void testServicePolicy() {
-        section("7. 「退出后是否保留通知栏时间」的判定规则");
-
-        // 划掉最近任务后要不要把服务拉回来
-        check("开启保留 + 服务在跑 -> 重启",
-                ServicePolicy.shouldRestartAfterTaskRemoved(true, true));
-        check("开启保留 + 服务已停 -> 不重启（没什么可救的）",
-                !ServicePolicy.shouldRestartAfterTaskRemoved(true, false));
-        check("关闭保留 -> 划掉后台不重启，通知随之消失",
-                !ServicePolicy.shouldRestartAfterTaskRemoved(false, true));
-        check("关闭保留 + 服务已停 -> 不重启",
-                !ServicePolicy.shouldRestartAfterTaskRemoved(false, false));
-
-        // 后台是否继续活着
-        check("常驻开 + 退出保留开 -> 后台继续运行",
-                ServicePolicy.shouldKeepRunningInBackground(true, true));
-        check("常驻开 + 退出保留关 -> 不后台长驻",
-                !ServicePolicy.shouldKeepRunningInBackground(true, false));
-        check("常驻关 -> 无论如何都不后台长驻",
-                !ServicePolicy.shouldKeepRunningInBackground(false, true));
-
-        // WakeLock 续期：服务可能连跑几天，到期前必须续，否则息屏后秒数会停
-        long timeout = ServicePolicy.WAKE_LOCK_TIMEOUT_MS;
-        long renew = ServicePolicy.WAKE_LOCK_RENEW_AFTER_MS;
-        check("续期阈值必须小于超时时长，否则会先失效", renew < timeout);
-        check("刚申请不久不需要续期", !ServicePolicy.wakeLockNeedsRenewal(0L));
-        check("持有 1 小时不需要续期", !ServicePolicy.wakeLockNeedsRenewal(60L * 60L * 1000L));
-        check("持有到续期阈值 -> 需要续期", ServicePolicy.wakeLockNeedsRenewal(renew));
-        check("持有超过超时时长 -> 必须续期", ServicePolicy.wakeLockNeedsRenewal(timeout + 1L));
-        System.out.println("  超时 " + (timeout / 3600000L) + " 小时，续期阈值 "
-                + (renew / 3600000L) + " 小时");
-
-        // 默认为「退出后保留」，也就是用户要求的默认行为
-        check("默认开启「退出后仍然显示」", ServicePolicy.DEFAULT_PERSIST_AFTER_EXIT);
-
-        // 界面状态文案
-        String running = ServicePolicy.describeState(true, true, false, true, true);
-        String exiting = ServicePolicy.describeState(true, false, false, true, true);
-        String off = ServicePolicy.describeState(false, true, false, false, true);
-        String noPerm = ServicePolicy.describeState(true, true, false, true, false);
-        String stopped = ServicePolicy.describeState(true, true, false, false, true);
-        String hidden = ServicePolicy.describeState(true, true, true, true, true);
-        check("常驻中且退出保留 -> 文案说明划掉后台也不消失", running.contains("划掉后台"));
-        check("常驻中但退出不保留 -> 文案说明会一起关闭", exiting.contains("退出应用后会一起关闭"));
-        check("通知栏关闭 -> 文案说明不会显示", off.contains("已关闭"));
-        check("无通知权限 -> 文案提示权限", noPerm.contains("通知权限"));
-        check("服务未运行 -> 文案提示重开应用", stopped.contains("重新打开"));
-        check("已从最近任务隐藏 -> 文案说明无法被划掉", hidden.contains("最近任务"));
-        System.out.println("  " + running);
-        System.out.println("  " + exiting);
-        System.out.println("  " + hidden);
-
-        // 从最近任务隐藏：参考李跳跳那类工具的思路，让应用压根不出现在最近任务里，
-        // 用户就没有「划掉后台」这个动作，前台服务不会被打断
-        check("开启隐藏 + 通知栏开着 -> 隐藏生效",
-                ServicePolicy.shouldExcludeFromRecents(true, true));
-        check("开启隐藏但通知栏关了 -> 不隐藏（否则没有入口能打开应用）",
-                !ServicePolicy.shouldExcludeFromRecents(true, false));
-        check("未开启隐藏 -> 照常出现在最近任务里",
-                !ServicePolicy.shouldExcludeFromRecents(false, true));
-
-        // 划掉任务后的重启重试必须落在「后台启动前台服务」的豁免窗口内（只有几秒）
-        check("重启重试间隔是秒级，不是分钟级",
-                ServicePolicy.RESTART_RETRY_DELAY_MS > 0
-                        && ServicePolicy.RESTART_RETRY_DELAY_MS <= 3000L);
-        check("最后一次重试仍在豁免窗口内",
-                ServicePolicy.RESTART_RETRY_DELAY_MS * 4 <= 10000L);
-        System.out.println("  重试时刻: 立即、"
-                + (ServicePolicy.RESTART_RETRY_DELAY_MS / 1000.0) + " 秒、"
-                + (ServicePolicy.RESTART_RETRY_DELAY_MS * 4 / 1000.0) + " 秒");
-
-        testBootDiagnostics();
-    }
-
-    private static void testBootDiagnostics() {
-        section("8. 进程重建诊断（用于判断通知消失是应用问题还是系统杀进程）");
-        check("刚启动的进程判定为「刚被重建」", BootDiagnostics.isFreshProcess(300L));
-        check("运行了一分钟的进程不算刚重建", !BootDiagnostics.isFreshProcess(60_000L));
-        check("负值不 panic", !BootDiagnostics.isFreshProcess(-1L));
-        check("毫秒级格式化", BootDiagnostics.formatAge(500L).equals("500 毫秒"));
-        check("秒级格式化带一位小数", BootDiagnostics.formatAge(1200L).startsWith("1.2"));
-        check("分钟级格式化", BootDiagnostics.formatAge(185_000L).equals("3 分 05 秒"));
-        check("小时级格式化", BootDiagnostics.formatAge(7_620_000L).equals("2 小时 07 分"));
-        check("异常输入不崩", BootDiagnostics.formatAge(-5L).equals("未知"));
-        System.out.println("  示例: " + BootDiagnostics.formatAge(185_000L) + " / "
-                + BootDiagnostics.formatAge(7_620_000L));
-    }
-
     // ------------------------------------------------------------ 工具方法
+
     private static void resetSingleton() throws Exception {
         Field f = TimeCenter.class.getDeclaredField("instance");
         f.setAccessible(true);

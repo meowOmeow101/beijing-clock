@@ -57,13 +57,8 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     private MaterialButton syncButton;
     private SwitchCompat serviceSwitch;
     private SwitchCompat iconSwitch;
-    private SwitchCompat persistSwitch;
-    private SwitchCompat recentsSwitch;
     private MaterialCardView serviceCard;
     private MaterialCardView iconCard;
-    private MaterialCardView persistCard;
-    private MaterialCardView recentsCard;
-    private TextView runtimeStateText;
 
     /** 每秒刷新首页时间 */
     private final Runnable ticker = new Runnable() {
@@ -77,7 +72,6 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        applyRecentsVisibility();
         setContentView(R.layout.activity_main);
 
         timeCenter = TimeCenter.get(this);
@@ -92,16 +86,10 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         syncButton = findViewById(R.id.button_sync);
         serviceSwitch = findViewById(R.id.switch_service);
         iconSwitch = findViewById(R.id.switch_icon);
-        persistSwitch = findViewById(R.id.switch_persist);
-        recentsSwitch = findViewById(R.id.switch_recents);
         serviceCard = findViewById(R.id.card_service);
         iconCard = findViewById(R.id.card_icon);
-        persistCard = findViewById(R.id.card_persist);
-        recentsCard = findViewById(R.id.card_recents);
-        runtimeStateText = findViewById(R.id.text_runtime_state);
 
         zoneText.setText(TimeFormatter.ZONE_NAME);
-        serviceSwitch.setChecked(NotificationClockService.isWanted(this));
 
         syncButton.setOnClickListener(v -> {
             if (timeCenter.isSyncing()) {
@@ -137,33 +125,7 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
             handler.postDelayed(this::refreshState, 500L);
         });
 
-        persistSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (!isSwitchStable) {
-                return;
-            }
-            NotificationClockService.setPersistAfterExit(this, isChecked);
-            if (isChecked) {
-                showMessage("已开启：从最近任务划掉本应用后，通知栏时间继续显示");
-            } else {
-                showMessage("已关闭：退出应用时通知栏时间会一起消失");
-            }
-            // 服务不需要重启，退出时的行为按读取到的最新偏好决定
-            handler.postDelayed(this::refreshState, 200L);
-        });
-
-        recentsSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            if (!isSwitchStable) {
-                return;
-            }
-            NotificationClockService.setHideFromRecents(this, isChecked);
-            if (isChecked) {
-                showMessage("已开启：重启应用后不再出现在最近任务中，通知栏是唯一入口");
-            } else {
-                showMessage("已关闭：重启应用后会重新出现在最近任务中");
-            }
-            handler.postDelayed(this::refreshState, 200L);
-        });
-
+        findViewById(R.id.button_info).setOnClickListener(v -> showInfoDialog());
         findViewById(R.id.button_settings).setOnClickListener(v -> openBatterySettings());
     }
 
@@ -177,26 +139,6 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         }
         isSwitchStable = false;
         serviceSwitch.setChecked(checked);
-        isSwitchStable = true;
-    }
-
-    /** 同步「退出后仍然显示」开关，同样不触发监听器 */
-    private void setPersistSwitchChecked(boolean checked) {
-        if (persistSwitch.isChecked() == checked) {
-            return;
-        }
-        isSwitchStable = false;
-        persistSwitch.setChecked(checked);
-        isSwitchStable = true;
-    }
-
-    /** 同步「从最近任务隐藏」开关 */
-    private void setRecentsSwitchChecked(boolean checked) {
-        if (recentsSwitch.isChecked() == checked) {
-            return;
-        }
-        isSwitchStable = false;
-        recentsSwitch.setChecked(checked);
         isSwitchStable = true;
     }
 
@@ -289,72 +231,19 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
         syncButton.setEnabled(!syncing);
         syncButton.setText(syncing ? "正在对时…" : "立即校准北京时间");
 
-        boolean serviceRunning = NotificationClockService.isRunning();
-        setSwitchChecked(NotificationClockService.isWanted(this) && serviceRunning, false);
+        setSwitchChecked(NotificationClockService.isWanted(this) && NotificationClockService.isRunning(), false);
         boolean keepIcon = NotificationClockService.isIconKept(this);
         isSwitchStable = false;
         iconSwitch.setChecked(keepIcon);
         isSwitchStable = true;
-        iconSwitch.setEnabled(serviceRunning);
-        iconCard.setAlpha(serviceRunning ? 1f : 0.5f);
-
-        setPersistSwitchChecked(NotificationClockService.isPersistAfterExit(this));
-        persistSwitch.setEnabled(NotificationClockService.isWanted(this));
-        persistCard.setAlpha(NotificationClockService.isWanted(this) ? 1f : 0.5f);
-
-        // 从最近任务隐藏：通知栏关掉就不能隐藏（否则没有入口能打开应用）
-        boolean hideAvailable = NotificationClockService.isWanted(this);
-        setRecentsSwitchChecked(NotificationClockService.isHideFromRecents(this));
-        recentsSwitch.setEnabled(hideAvailable);
-        recentsCard.setAlpha(hideAvailable ? 1f : 0.5f);
+        iconSwitch.setEnabled(NotificationClockService.isRunning());
+        iconCard.setAlpha(NotificationClockService.isRunning() ? 1f : 0.5f);
 
         boolean notificationsOn = NotificationClockService.notificationsEnabled(this);
-        serviceCard.setAlpha(notificationsOn ? 1f : 0.85f);
-
-        // 一句话说清「现在到底在不在显示」
-        String state = "当前状态：" + NotificationClockService.describeState(this);
-        if (NotificationClockService.isWanted(this) && !isIgnoringBatteryOptimizations()) {
-            // 这一条很关键：没进白名单的应用在国产 ROM 上很容易被划掉后台时直接冻结
-            state += "\n建议将本应用加入电池优化白名单，否则划掉后台后系统可能冻结它（点下方按钮）";
-        }
-        runtimeStateText.setText(state);
-    }
-
-    /**
-     * 让本应用不出现在最近任务列表里。
-     *
-     * <p>这是整套保活里最管用的一招：应用压根不出现在最近任务里，用户就没有「划掉后台」
-     * 这个动作，前台服务不会被打断，通知栏的时间自然一直留着。
-     *
-     * <p>用 {@code FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS} 而不是在清单里写
-     * {@code excludeFromRecents="true"}，也不去禁用 Activity 组件：前者可以运行时开关，
-     * 后者会让通知栏那条通知也点不开应用（Android 11 起被禁用的组件连显式 Intent 都拦）。
-     * 这个标志在任务创建时生效，所以关掉开关后需要重启一次应用才会重新出现在最近任务里。
-     */
-    private void applyRecentsVisibility() {
-        boolean hide = ServicePolicy.shouldExcludeFromRecents(
-                NotificationClockService.isHideFromRecents(this),
-                NotificationClockService.isWanted(this));
-        if (hide) {
-            Intent intent = getIntent();
-            if (intent == null) {
-                intent = new Intent();
-                setIntent(intent);
-            }
-            intent.addFlags(Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS);
-        }
-    }
-
-    /** 是否已被系统列入电池优化白名单（未列入时后台更容易被冻结） */
-    private boolean isIgnoringBatteryOptimizations() {        try {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                return true;
-            }
-            android.os.PowerManager pm =
-                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
-            return pm != null && pm.isIgnoringBatteryOptimizations(getPackageName());
-        } catch (Exception e) {
-            return true;
+        if (!notificationsOn) {
+            serviceCard.setAlpha(0.85f);
+        } else {
+            serviceCard.setAlpha(1f);
         }
     }
 
@@ -370,6 +259,22 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     }
 
     // ------------------------------------------------------------------ 弹窗
+
+    private void showInfoDialog() {
+        String message = "时间来源：每次打开本应用（或服务启动）时，通过 NTP 协议向 "
+                + "ntp.aliyun.com、cn.pool.ntp.org 等授时服务器校准一次北京时间，"
+                + "校准结果（本机时钟偏移量）会保存在本地并持续推算，因此不联网也能继续准确走时。\n\n"
+                + "时区：固定使用北京时间（Asia/Shanghai，UTC+8），与手机系统时区无关。\n\n"
+                + "通知栏显示：开启后由一个前台服务每秒刷新一次通知，"
+                + "下拉通知栏即可看到精确到秒的北京时间；若希望状态栏常驻图标，"
+                + "请保持「状态栏常驻图标」为开启状态。\n\n"
+                + "如果系统在后台清理了应用，重新打开本应用会自动恢复并重新校准。";
+        new AlertDialog.Builder(this)
+                .setTitle("关于本应用")
+                .setMessage(message)
+                .setPositiveButton("知道了", null)
+                .show();
+    }
 
     /** 后台保活设置：给出两个最常用的入口 */
     private void openBatterySettings() {
