@@ -11,8 +11,32 @@ if (-not (Test-Path $root)) { throw "project root not found: $root" }
 
 $jt = Join-Path $PSScriptRoot 'jvmtest'
 $out = Join-Path $jt 'out'
-$javac = 'D:\Appdatas\zulu21\bin\javac.exe'
-$java = 'D:\Appdatas\zulu21\bin\java.exe'
+
+# Locate a JDK: JAVA_HOME first, then the usual install roots, then PATH.
+function Find-JdkTool([string]$exeName) {
+    $candidates = @()
+    if ($env:JAVA_HOME) { $candidates += (Join-Path $env:JAVA_HOME "bin\$exeName") }
+    foreach ($root in @('C:\Program Files\Java', 'C:\Program Files\Eclipse Adoptium',
+                        'C:\Program Files\Microsoft', 'C:\Program Files\Zulu', 'D:\Java')) {
+        if (Test-Path $root) {
+            $candidates += Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { Join-Path $_.FullName "bin\$exeName" }
+        }
+    }
+    $candidates += (Join-Path $env:USERPROFILE ".gradle\jdks\*\*\bin\$exeName")
+    foreach ($c in $candidates) {
+        $resolved = Get-ChildItem $c -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($resolved) { return $resolved.FullName }
+        if (Test-Path $c) { return $c }
+    }
+    $onPath = Get-Command $exeName -ErrorAction SilentlyContinue
+    if ($onPath) { return $onPath.Source }
+    throw "cannot find $exeName; set JAVA_HOME to a JDK 17+ installation"
+}
+
+$javac = Find-JdkTool 'javac.exe'
+$java = Find-JdkTool 'java.exe'
+Write-Output "javac: $javac"
 
 if (Test-Path $out) { Remove-Item $out -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
