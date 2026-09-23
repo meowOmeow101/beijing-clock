@@ -21,6 +21,10 @@ keystore.properties
 *.jks
 *.keystore
 
+# 发布/登录过程中的临时文件
+tools/github_login_code.txt
+tools/github_login_log.txt
+
 # 系统
 .DS_Store
 Thumbs.db
