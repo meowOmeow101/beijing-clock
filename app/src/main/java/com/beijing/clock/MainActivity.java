@@ -125,7 +125,6 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
             handler.postDelayed(this::refreshState, 500L);
         });
 
-        findViewById(R.id.button_info).setOnClickListener(v -> showInfoDialog());
         findViewById(R.id.button_settings).setOnClickListener(v -> openBatterySettings());
     }
 
@@ -259,22 +258,6 @@ public class MainActivity extends AppCompatActivity implements TimeCenter.Listen
     }
 
     // ------------------------------------------------------------------ 弹窗
-
-    private void showInfoDialog() {
-        String message = "时间来源：每次打开本应用（或服务启动）时，通过 NTP 协议向 "
-                + "ntp.aliyun.com、cn.pool.ntp.org 等授时服务器校准一次北京时间，"
-                + "校准结果（本机时钟偏移量）会保存在本地并持续推算，因此不联网也能继续准确走时。\n\n"
-                + "时区：固定使用北京时间（Asia/Shanghai，UTC+8），与手机系统时区无关。\n\n"
-                + "通知栏显示：开启后由一个前台服务每秒刷新一次通知，"
-                + "下拉通知栏即可看到精确到秒的北京时间；若希望状态栏常驻图标，"
-                + "请保持「状态栏常驻图标」为开启状态。\n\n"
-                + "如果系统在后台清理了应用，重新打开本应用会自动恢复并重新校准。";
-        new AlertDialog.Builder(this)
-                .setTitle("关于本应用")
-                .setMessage(message)
-                .setPositiveButton("知道了", null)
-                .show();
-    }
 
     /** 后台保活设置：给出两个最常用的入口 */
     private void openBatterySettings() {
